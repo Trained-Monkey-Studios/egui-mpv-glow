@@ -8,8 +8,10 @@ struct App {
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut app: Self = Default::default();
-        app.player.init_with_eframe(cc).unwrap();
-        if let Some(filename) = env::args().skip(1).next() {
+        app.player
+            .init_with_eframe(cc)
+            .expect("Failed to initialize mpv");
+        if let Some(filename) = env::args().nth(1) {
             app.player.play(&PathBuf::from(filename));
         }
         app
@@ -46,8 +48,6 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "EguiMpvGlow Demo",
         eframe::NativeOptions::default(),
-        Box::new(|cc| {
-            Ok(Box::new(App::new(cc)))
-        }),
+        Box::new(|cc| Ok(Box::new(App::new(cc)))),
     )
 }

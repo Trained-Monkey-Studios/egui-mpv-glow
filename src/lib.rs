@@ -2,7 +2,7 @@
 ///
 /// Uses libmpv (via ffmpeg) to do hardware decoding of media into OpenGL textures without
 /// requiring the frames to go through the CPU or main memory. Those textures are then injected
-/// into Egui via the egui_glow driver and provided to the ui each frame as a normal egui::Image
+/// into Egui via the `egui_glow` driver and provided to the ui each frame as a normal `egui::Image`
 /// that can be drawn either via `ui.add` or `img.paint_at(ui, rect)`.
 ///
 /// Usage with eframe:
@@ -37,14 +37,11 @@
 ///     }
 /// }
 /// ```
-pub mod gl_fns;
 mod flags;
 
-use crate::{
-    flags::{EventId, RenderFrameInfoFlags},
-    gl_fns::GlFns
-};
+use crate::flags::RenderFrameInfoFlags;
 use anyhow::Result;
+use bitbag::BitBag;
 use crossbeam::channel::{Receiver, Sender};
 use egui::Rect;
 use glow::HasContext as _;
@@ -52,8 +49,7 @@ use libmpv::{FileState, Mpv};
 use log::trace;
 use parking_lot::Mutex;
 use std::{ffi, path::Path, ptr, sync::Arc};
-use bitbag::BitBag;
-use libmpv_sys::mpv_log_level;
+
 // Notes:
 //   The glow opengl context is created and bound to the main (rendering) thread. Thus, all
 //   of our render API calls have to be on the main thread. This means that all of our other
@@ -69,16 +65,8 @@ pub enum MpvPlayerState {
     Paused,
 }
 
-#[derive(Clone, Copy, Debug)]
-enum MpvEvent {
-    CoreUpdate,
-    RenderUpdate,
-}
-
-#[derive(Clone, Debug)]
-struct CallbackContext {
-    ctx: egui::Context,
-    events: Sender<MpvEvent>,
+struct GpaContext<'a> {
+    pub get_proc_addr: &'a dyn Fn(&ffi::CStr) -> *const ffi::c_void,
 }
 
 // LibMPV Doc String:
@@ -95,35 +83,49 @@ extern "C" fn art_get_proc_address_stub(
     ctx: *mut ::std::os::raw::c_void,
     name: *const ::std::os::raw::c_char,
 ) -> *mut ::std::os::raw::c_void {
-    // SAFETY: We handed it a pointer to ourselves and we aren't clone or copy, so can't be moved.
-    //         The drop implementation for the player destroys the render context, which should
-    //         stop any further calls to this function.
-    let player = unsafe { &*(ctx as *mut MpvPlayer) };
+    // SAFETY: We handed it a pointer to a stack ref and we know via inspection of mpv source
+    //         that the get_proc_address function pointer we pass it will not outlive the call
+    //         to mpv_render_context_create.
+    let gpa_ctx = unsafe { &*ctx.cast::<GpaContext<'_>>() };
 
     // SAFETY: We trust that MPV is handing us sane, gl-relevant (i.e. ascii) character strings.
-    // let name = unsafe { ffi::CString::from_raw(name as *mut _) }.to_string_lossy().as_ref();
     let c_name = unsafe { ffi::CStr::from_ptr(name) };
 
-    trace!("art_get_proc_address_stub: {}", c_name.to_str().unwrap());
-    player
-        .gl_fns
-        .as_ref()
-        .expect("opengl function table not initialized")
-        .get_proc_address(c_name) as *mut _
+    trace!(
+        "art_get_proc_address_stub: {}",
+        c_name.to_str().expect("invalid utf-8 in get_proc_address")
+    );
+    (gpa_ctx.get_proc_addr)(c_name).cast_mut()
+}
+
+#[derive(Clone, Copy, Debug)]
+enum MpvEvent {
+    CoreUpdate,
+    RenderUpdate,
+}
+
+#[derive(Clone, Debug)]
+struct CallbackContext {
+    ctx: egui::Context,
+    events: Sender<MpvEvent>,
 }
 
 extern "C" fn mpv_update_callback(cb_ctx: *mut ffi::c_void) {
     // SAFETY: we boxed the callback context so it wouldn't move after passing the address to MPV.
-    let ctx = unsafe { &*(cb_ctx as *mut CallbackContext) };
-    ctx.events.send(MpvEvent::CoreUpdate).unwrap();
+    let ctx = unsafe { &*cb_ctx.cast::<CallbackContext>() };
+    ctx.events
+        .send(MpvEvent::CoreUpdate)
+        .expect("mpv events channel was closed");
     ctx.ctx.request_repaint();
 }
 
 // typedef void (*mpv_render_update_fn)(void *cb_ctx);
 extern "C" fn mpv_render_update_callback(cb_ctx: *mut ffi::c_void) {
     // SAFETY: we boxed the callback context so it wouldn't move after passing the address to MPV.
-    let ctx = unsafe { &*(cb_ctx as *mut CallbackContext) };
-    ctx.events.send(MpvEvent::RenderUpdate).unwrap();
+    let ctx = unsafe { &*cb_ctx.cast::<CallbackContext>() };
+    ctx.events
+        .send(MpvEvent::RenderUpdate)
+        .expect("mpv events channel was closed");
     ctx.ctx.request_repaint();
 }
 
@@ -137,6 +139,7 @@ pub struct PlayerTexture {
 impl PlayerTexture {
     pub fn new(size: Rect, painter: &egui_glow::Painter) -> Self {
         let gl = painter.gl().as_ref();
+        // SAFETY: This is pretty bog-standard OpenGL
         unsafe {
             let tex = gl.create_texture().expect("failed to create fbo texture");
             gl.bind_texture(glow::TEXTURE_2D, Some(tex));
@@ -162,10 +165,6 @@ impl PlayerTexture {
                 glow::LINEAR as i32,
             );
 
-            // let tex_id = painter.register_native_texture(tex);
-            // let tex_id = egui::TextureId::User(tex.0.get().into());
-            // let tex_id = frame.register_native_glow_texture(tex);
-
             let fbo = gl.create_framebuffer().expect("failed to create fbo");
             gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fbo));
             gl.framebuffer_texture_2d(
@@ -185,6 +184,15 @@ impl PlayerTexture {
             }
         }
     }
+
+    pub fn destroy(&self, painter: &egui_glow::Painter) {
+        // SAFETY: manual cleanup of GL resources
+        unsafe {
+            let gl = painter.gl();
+            gl.delete_framebuffer(self.fbo);
+            gl.delete_texture(self.tex);
+        }
+    }
 }
 
 #[derive(Default)]
@@ -194,7 +202,6 @@ pub struct MpvPlayer {
     mpv: Option<Mpv>,
 
     // Mpv render API context
-    gl_fns: Option<GlFns>,
     ctx: *mut libmpv_sys::mpv_render_context,
 
     // The glue between OpenGL, egui, and mpv
@@ -204,7 +211,8 @@ pub struct MpvPlayer {
 
 impl Drop for MpvPlayer {
     fn drop(&mut self) {
-        if self.ctx != ptr::null_mut() {
+        if !self.ctx.is_null() {
+            // SAFETY: we just checked for null
             unsafe { libmpv_sys::mpv_render_context_free(self.ctx) };
             self.ctx = ptr::null_mut();
         }
@@ -228,19 +236,6 @@ impl MpvPlayer {
         );
         self.state = MpvPlayerState::Stopped;
 
-        // FIXME: this is correct, but not actually needed as reading the code shows that the
-        //        function pointer we pass here is not stored and only used ephemerally.
-        // CC goes away after this call stack and the get_proc_address in it is a pointer to a
-        // closure defined on the stack in any case. We don't know what MPV's expectations are for
-        // the get_proc_address we hand it, but given that get_proc_address is usually a global
-        // static function in C-land, we should expect it to be treated as such. For that reason,
-        // pre-load all the GL functions we know about at startup using the get_proc_address from
-        // the passed Glutin context so we can hand them out whenever the get_proc_address we pass
-        // to MPV happens to get called.
-        self.gl_fns = Some(GlFns::with_loader(
-            cc.get_proc_address.expect("opengl not available"),
-        )?);
-
         // Create the machinery needed to receive events from MPV so that we can drive the
         // render loop successfully.
         let (send, recv) = crossbeam::channel::unbounded();
@@ -255,12 +250,15 @@ impl MpvPlayer {
         // Create the MPV renderer in "advanced" mode. This means we need to be very careful
         // with how we access the context, but means we won't deadlock accidentally, barring
         // legacy bugs that we shouldn't be shipping.
-        let self_p: *mut Self = self;
-        let api_type = libmpv_sys::MPV_RENDER_API_TYPE_OPENGL.as_ptr() as *const ffi::c_char;
+        let mut gpa_ctx = GpaContext {
+            get_proc_addr: cc.get_proc_address.expect("opengl not available"),
+        };
+        let gpa_ctx_p: *mut GpaContext<'_> = &mut gpa_ctx;
+        let api_type: *const ffi::c_char = libmpv_sys::MPV_RENDER_API_TYPE_OPENGL.as_ptr().cast();
         let api_type_p: *mut ffi::c_char = api_type.cast_mut();
         let mut ogl_params_pack = libmpv_sys::mpv_opengl_init_params {
             get_proc_address: Some(art_get_proc_address_stub),
-            get_proc_address_ctx: self_p as *mut _,
+            get_proc_address_ctx: gpa_ctx_p.cast(),
         };
         let ogl_params_p: *mut libmpv_sys::mpv_opengl_init_params = &mut ogl_params_pack;
         let mut advanced_ctrl = 1i32;
@@ -295,13 +293,13 @@ impl MpvPlayer {
             libmpv_sys::mpv_set_wakeup_callback(
                 self.mpv.as_ref().expect("mpv not inited").ctx.as_ptr(),
                 Some(mpv_update_callback),
-                Box::into_raw(core_cb_ctx) as *const ffi::c_void as *mut _,
+                Box::into_raw(core_cb_ctx).cast(),
             );
 
             libmpv_sys::mpv_render_context_set_update_callback(
                 self.ctx,
                 Some(mpv_render_update_callback),
-                Box::into_raw(render_cb_ctx) as *const ffi::c_void as *mut _,
+                Box::into_raw(render_cb_ctx).cast(),
             );
         }
 
@@ -321,12 +319,15 @@ impl MpvPlayer {
         // Note: this is called on the main thread later during the rendering bits when
         //       the right gl context has been made current and had its state prepared.
         let cb = egui_glow::CallbackFn::new(move |_info, painter| {
-            // FIXME: don't take the lock if MPV is going to sleep to render
+            // TODO: figure out how to avoid blocking here, if possible, especially since we're holding a lock.
+            //       For that matter, do we even need this lock anymore, now that we know this callback
+            //       runs on the main thread?
             let mut tex = tex_ref.lock();
             let mut rebuild = tex.is_none();
             if let Some(tex) = tex.as_ref()
                 && tex.tex_size != rect
             {
+                tex.destroy(painter);
                 rebuild = true;
             }
             if rebuild {
@@ -336,8 +337,10 @@ impl MpvPlayer {
 
             // SAFETY: C doesn't have a means to move this pointer around once it is created, but
             //         the actual constraint on its usage with threads is purely documentation.
-            let ctx = render_ctx as *mut libmpv_sys::mpv_render_context;
-            Self::render_to_texture(ctx, &tex);
+            unsafe {
+                let ctx = render_ctx as *mut libmpv_sys::mpv_render_context;
+                Self::render_to_texture(ctx, tex);
+            }
         });
 
         // Read from our events stream on the main thread and respond to MPV
@@ -347,7 +350,8 @@ impl MpvPlayer {
                 MpvEvent::RenderUpdate => {
                     // SAFETY: called from the main thread in response to a render update callback.
                     let flags = unsafe { libmpv_sys::mpv_render_context_update(self.ctx) };
-                    let flags = BitBag::<RenderFrameInfoFlags>::new_checked(flags).unwrap();
+                    let flags = BitBag::<RenderFrameInfoFlags>::new_checked(flags)
+                        .expect("invalid Frame Info flags");
                     if flags.is_set(RenderFrameInfoFlags::Present) {
                         redraw = true;
                     }
@@ -355,8 +359,13 @@ impl MpvPlayer {
                 MpvEvent::CoreUpdate => {
                     loop {
                         // SAFETY: we received a wakeup event from MPV, so we know there is an event available.
-                        let event = unsafe { libmpv_sys::mpv_wait_event(self.mpv.as_ref().unwrap().ctx.as_ptr(), 0.0) };
-                        if event == ptr::null_mut() {
+                        let event = unsafe {
+                            libmpv_sys::mpv_wait_event(
+                                self.mpv.as_ref().expect("mpv not init").ctx.as_ptr(),
+                                0.0,
+                            )
+                        };
+                        if event.is_null() {
                             break;
                         }
                         // SAFETY: just checked for null
@@ -364,38 +373,52 @@ impl MpvPlayer {
                         match event.event_id {
                             libmpv_sys::mpv_event_id_MPV_EVENT_NONE => break,
                             libmpv_sys::mpv_event_id_MPV_EVENT_LOG_MESSAGE => {
-                                let msg: *const libmpv_sys::mpv_event_log_message = event.data as *const _;
+                                let msg: *const libmpv_sys::mpv_event_log_message =
+                                    event.data as *const _;
                                 // SAFETY: the message is documented as being present
                                 let msg = unsafe { &*msg };
                                 let level = match msg.log_level {
-                                    libmpv_sys::mpv_log_level_MPV_LOG_LEVEL_NONE => log::Level::Error,
-                                    libmpv_sys::mpv_log_level_MPV_LOG_LEVEL_FATAL => log::Level::Error,
-                                    libmpv_sys::mpv_log_level_MPV_LOG_LEVEL_ERROR => log::Level::Error,
-                                    libmpv_sys::mpv_log_level_MPV_LOG_LEVEL_WARN => log::Level::Warn,
-                                    libmpv_sys::mpv_log_level_MPV_LOG_LEVEL_INFO => log::Level::Info,
-                                    libmpv_sys::mpv_log_level_MPV_LOG_LEVEL_V => log::Level::Debug,
-                                    libmpv_sys::mpv_log_level_MPV_LOG_LEVEL_DEBUG => log::Level::Debug,
-                                    libmpv_sys::mpv_log_level_MPV_LOG_LEVEL_TRACE => log::Level::Trace,
+                                    libmpv_sys::mpv_log_level_MPV_LOG_LEVEL_NONE
+                                    | libmpv_sys::mpv_log_level_MPV_LOG_LEVEL_FATAL
+                                    | libmpv_sys::mpv_log_level_MPV_LOG_LEVEL_ERROR => {
+                                        log::Level::Error
+                                    }
+                                    libmpv_sys::mpv_log_level_MPV_LOG_LEVEL_WARN => {
+                                        log::Level::Warn
+                                    }
+                                    libmpv_sys::mpv_log_level_MPV_LOG_LEVEL_INFO => {
+                                        log::Level::Info
+                                    }
+                                    libmpv_sys::mpv_log_level_MPV_LOG_LEVEL_V
+                                    | libmpv_sys::mpv_log_level_MPV_LOG_LEVEL_DEBUG => {
+                                        log::Level::Debug
+                                    }
                                     _ => log::Level::Trace,
                                 };
                                 // SAFETY: the message is documented as being present
-                                let content = unsafe { ffi::CStr::from_ptr(msg.text) }.to_string_lossy();
+                                let content =
+                                    unsafe { ffi::CStr::from_ptr(msg.text) }.to_string_lossy();
                                 for line in content.split('\n') {
-                                    log::log!(level, "{}", line);
+                                    log::log!(level, "{line}");
                                 }
                             }
                             libmpv_sys::mpv_event_id_MPV_EVENT_START_FILE => {
                                 // SAFETY: per the docs, the only element in the struct passed here is the playlist offset.
-                                let playlist_offset = unsafe { *(event.data as *const ffi::c_long as *const i64) };
-                                trace!("mpv started playing file at playlist offset: {playlist_offset}");
-                            },
-                            libmpv_sys::mpv_event_id_MPV_EVENT_IDLE => {},
+                                let playlist = unsafe {
+                                    *(event.data as *const libmpv_sys::mpv_event_start_file)
+                                };
+                                trace!(
+                                    "mpv started playing file at playlist entry id: {}",
+                                    playlist.playlist_entry_id
+                                );
+                            }
+                            libmpv_sys::mpv_event_id_MPV_EVENT_IDLE => {}
                             libmpv_sys::mpv_event_id_MPV_EVENT_FILE_LOADED => {
                                 trace!("mpv decoding started on current file");
-                            },
+                            }
                             libmpv_sys::mpv_event_id_MPV_EVENT_AUDIO_RECONFIG => {
                                 trace!("mpv audio has been reconfigured");
-                            },
+                            }
                             libmpv_sys::mpv_event_id_MPV_EVENT_VIDEO_RECONFIG => {
                                 // TODO: resize the texture here? Should we not be using the output size?
                                 trace!("mpv video has been reconfigured");
@@ -404,7 +427,7 @@ impl MpvPlayer {
                                 // Playback position update or start is complete
                                 trace!("mpv video seek finished");
                             }
-                            _ => trace!("unrecognized mpv event: {:#?}", event),
+                            _ => trace!("unrecognized mpv event: {event:#?}"),
                         }
                     }
                 }
@@ -424,13 +447,12 @@ impl MpvPlayer {
         // We may or may not have an image this frame, but get it and return it if we have it.
         let mut tex = self.tex.lock();
         tex.as_mut().map(|tex| {
-            let tex_id = match tex.tex_id {
-                Some(tex_id) => tex_id,
-                None => {
-                    let tex_id = frame.register_native_glow_texture(tex.tex);
-                    tex.tex_id = Some(tex_id);
-                    tex_id
-                }
+            let tex_id = if let Some(tex_id) = tex.tex_id {
+                tex_id
+            } else {
+                let tex_id = frame.register_native_glow_texture(tex.tex);
+                tex.tex_id = Some(tex_id);
+                tex_id
             };
             egui::Image::from_texture(egui::load::SizedTexture {
                 id: tex_id,
@@ -439,9 +461,10 @@ impl MpvPlayer {
         })
     }
 
-    pub fn render_to_texture(ctx: *mut libmpv_sys::mpv_render_context, tex: &PlayerTexture) {
-        // FIXME: we need to figure out how this should work as the main driver calls the sync APIs
-        //        and we need to not do that from the same thread.
+    unsafe fn render_to_texture(ctx: *mut libmpv_sys::mpv_render_context, tex: &PlayerTexture) {
+        // SAFETY: We're following the documentation for how to call this API in render.h,
+        //         as demonstrated by the SDL example program. We also depend on the correctness
+        //         of the layouts in libmpv_sys.
         unsafe {
             let mut fbo_param = libmpv_sys::mpv_opengl_fbo {
                 fbo: tex.fbo.0.get().cast_signed(),
@@ -449,17 +472,19 @@ impl MpvPlayer {
                 h: tex.tex_size.height() as i32,
                 internal_format: glow::RGB as i32,
             };
+            let fbo_param_p: *mut libmpv_sys::mpv_opengl_fbo = &mut fbo_param;
             // Note: we need to flip for OpenGL, but this is done by egui_glow for us.
             let mut flip_y_param = 0i32;
+            let flip_y_param_p: *mut i32 = &mut flip_y_param;
             let mut params_pack = [
                 // Pass the FBO to draw to, already linked with our texture.
                 libmpv_sys::mpv_render_param {
                     type_: libmpv_sys::mpv_render_param_type_MPV_RENDER_PARAM_OPENGL_FBO,
-                    data: (&mut fbo_param as *mut _) as *mut _,
+                    data: fbo_param_p.cast(),
                 },
                 libmpv_sys::mpv_render_param {
                     type_: libmpv_sys::mpv_render_param_type_MPV_RENDER_PARAM_FLIP_Y,
-                    data: (&mut flip_y_param as *mut _) as *mut _,
+                    data: flip_y_param_p.cast(),
                 },
                 // Terminator
                 libmpv_sys::mpv_render_param {
