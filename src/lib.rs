@@ -20,6 +20,7 @@
 ///         // An init_* method variant _must_ be called at startup with the GL context
 ///         // to set up the MPV Render subsystem.
 ///         app.player.init_with_eframe(cc).unwrap();
+///         app.player.play(&std::path::PathBuf::from("video.mp4"));
 ///
 ///         app
 ///     }
