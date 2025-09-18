@@ -1,7 +1,14 @@
 [package]
 name = "egui-mpv-glow"
+description = "Hardware video decode with libmpv into egui::Image, enabling 4k/60fps video in egui."
 version = "0.32.3"
 edition = "2024"
+authors = ["Terrence Cole (terrence.d.cole@gmail.com)"]
+homepage = "https://github.com/Trained-Monkey-Studios/egui-mpv-glow"
+repository = "https://github.com/Trained-Monkey-Studios/egui-mpv-glow"
+documentation = "https://github.com/Trained-Monkey-Studios/egui-mpv-glow"
+license = "MIT"
+license-file = "LICENSE-MIT"
 
 [dependencies]
 anyhow = "1.0"
