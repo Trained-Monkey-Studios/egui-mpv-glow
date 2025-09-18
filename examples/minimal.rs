@@ -31,26 +31,11 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        // The player example needs to detect various keys to implement a basic media player.
+        // The minimal demo just checks for the Escape key to exit.
         let mut exit = false;
         ctx.input(|input| {
             if input.key_pressed(egui::Key::Escape) {
                 exit = true;
-            } else if input.key_pressed(egui::Key::Space) {
-                if self.player.is_paused() {
-                    self.player.unpause();
-                } else {
-                    self.player.pause();
-                }
-            } else if input.key_pressed(egui::Key::ArrowRight) {
-                self.player.seek_forward(5.);
-            } else if input.key_pressed(egui::Key::ArrowLeft) {
-                self.player.seek_backward(5.);
-            } else if input.key_pressed(egui::Key::R) {
-                self.player.stop();
-                if let Some(filename) = env::args().nth(1) {
-                    self.player.play(&PathBuf::from(filename));
-                }
             }
         });
         if exit {
