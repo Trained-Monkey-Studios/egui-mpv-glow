@@ -199,6 +199,8 @@ impl MpvPlayer {
         self.mpv_mut()
             .playlist_remove_current_async()
             .expect("mpv disconnect");
+        // Note: removing the playlist entry doesn't stop the current playback.
+        self.pause();
     }
 
     pub fn seek_forward(&mut self, delta_secs: f64) {
