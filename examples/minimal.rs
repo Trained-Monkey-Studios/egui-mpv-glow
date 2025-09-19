@@ -22,7 +22,7 @@ impl App {
 
         // For the demo, we just immediately play the file passed as the first argument.
         if let Some(filename) = env::args().nth(1) {
-            app.player.play(&PathBuf::from(filename));
+            app.player.playlist_replace_async(&PathBuf::from(filename), None).ok();
         }
 
         app

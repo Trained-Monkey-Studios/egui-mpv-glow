@@ -20,7 +20,7 @@
 ///         // An init_* method variant _must_ be called at startup with the GL context
 ///         // to set up the MPV Render subsystem.
 ///         app.player.init_with_eframe(cc).unwrap();
-///         app.player.play(&std::path::PathBuf::from("video.mp4"));
+///         app.player.playlist_replace_async(&std::path::PathBuf::from("video.mp4"), None).ok();
 ///
 ///         app
 ///     }
@@ -46,12 +46,10 @@ mod shared;
 mod texture;
 
 pub use crate::advanced_client::MpvAdvancedClient;
+pub use libmpv::FileState;
 
 use crate::{render::MpvRender, texture::PlayerTexture};
 use anyhow::Result;
-use egui::Rect;
-use log::trace;
-use parking_lot::Mutex;
 use std::{path::Path, sync::Arc};
 
 // Notes:
@@ -67,7 +65,7 @@ pub struct MpvPlayer {
     render: Option<MpvRender>,
 
     // The glue between OpenGL, egui, and mpv
-    tex: Arc<Mutex<Option<PlayerTexture>>>,
+    tex: Arc<parking_lot::Mutex<Option<PlayerTexture>>>,
 }
 
 impl Drop for MpvPlayer {
@@ -98,7 +96,7 @@ impl MpvPlayer {
 
     pub fn image(
         &mut self,
-        rect: &Rect,
+        rect: &egui::Rect,
         painter: &egui::Painter,
         frame: &mut eframe::Frame,
     ) -> Option<egui::Image<'_>> {
@@ -164,54 +162,145 @@ impl MpvPlayer {
         })
     }
 
-    // Panics if initialize has not yet been called.
+    /// Panics if initialize has not yet been called.
+    fn mpv(&self) -> &MpvAdvancedClient {
+        self.client.as_ref().expect("mpv not initialized")
+    }
+
+    /// Panics if initialize has not yet been called.
     fn mpv_mut(&mut self) -> &mut MpvAdvancedClient {
         self.client.as_mut().expect("mpv not initialized")
     }
 
-    /// Play a media file.
-    /// Panics if initialize has not yet been called.
-    pub fn play(&mut self, filename: &Path) {
-        self.stop();
-        trace!("mpv playing file {filename:?}");
+    // --- Seek functions ---
+    //
+
+    /// Seek forward relatively from current position in seconds.
+    /// This is less exact than `seek_absolute`, see [mpv manual]
+    /// (<https://mpv.io/manual/master/#command-interface-[relative|absolute|absolute-percent|relative-percent|exact|keyframes]>).
+    pub fn seek_forward_async(&mut self, secs: f64) -> Result<()> {
+        self.mpv_mut().seek_forward_async(secs)
+    }
+
+    /// See `seek_forward`.
+    pub fn seek_backward_async(&mut self, secs: f64) -> Result<()> {
+        self.mpv_mut().seek_backward_async(secs)
+    }
+
+    /// Seek to a given absolute secs.
+    pub fn seek_absolute_async(&mut self, secs: f64) -> Result<()> {
+        self.mpv_mut().seek_absolute_async(secs)
+    }
+
+    /// Seek to a given relative percent position (may be negative).
+    /// If `percent` of the playtime is bigger than the remaining playtime, the next file is played.
+    /// out of bounds values are clamped to either 0 or 100.
+    pub fn seek_percent_async(&mut self, percent: isize) -> Result<()> {
+        self.mpv_mut().seek_percent_async(percent)
+    }
+
+    /// Seek to the given percentage of the playtime.
+    pub fn seek_percent_absolute_async(&mut self, percent: usize) -> Result<()> {
+        self.mpv_mut().seek_percent_absolute_async(percent)
+    }
+
+    /// Revert the previous `seek_` call, can also revert itself.
+    pub fn seek_revert_async(&mut self) -> Result<()> {
+        self.mpv_mut().seek_revert_async()
+    }
+
+    /// Mark the current position as the position that will be sought to by `seek_revert`.
+    pub fn seek_revert_mark_async(&mut self) -> Result<()> {
+        self.mpv_mut().seek_revert_mark_async()
+    }
+
+    /// Seek exactly one frame, and pause.
+    /// Noop on audio only streams.
+    pub fn seek_frame_async(&mut self) -> Result<()> {
+        self.mpv_mut().seek_frame_async()
+    }
+
+    /// See `seek_frame`.
+    /// [Note performance considerations.](https://mpv.io/manual/master/#command-interface-frame-back-step)
+    pub fn seek_frame_backward_async(&mut self) -> Result<()> {
+        self.mpv_mut().seek_frame_backward_async()
+    }
+
+    // --- Playlist functions ---
+    //
+
+    /// Play the next item of the current playlist.
+    /// Does nothing if the current item is the last item.
+    pub fn playlist_next_weak_async(&mut self) -> Result<()> {
+        self.mpv_mut().playlist_next_weak_async()
+    }
+
+    /// Play the next item of the current playlist.
+    /// Terminates playback if the current item is the last item.
+    pub fn playlist_next_force_async(&mut self) -> Result<()> {
+        self.mpv_mut().playlist_next_force_async()
+    }
+
+    /// See `playlist_next_weak`.
+    pub fn playlist_previous_weak_async(&mut self) -> Result<()> {
+        self.mpv_mut().playlist_previous_weak_async()
+    }
+
+    /// See `playlist_next_force`.
+    pub fn playlist_previous_force_async(&mut self) -> Result<()> {
+        self.mpv_mut().playlist_previous_force_async()
+    }
+
+    pub fn playlist_replace_async(&mut self, filename: &Path, extra: Option<&str>) -> Result<()> {
         self.mpv_mut()
-            .playlist_load_files_async(&[(filename, libmpv::FileState::Replace, None)])
-            .expect("mpv disconnect");
+            .playlist_load_files_async(&[(
+                filename,
+                FileState::Replace,
+                extra,
+            )])
     }
 
-    pub fn pause(&mut self) {
-        self.mpv_mut().pause_async().expect("mpv disconnect");
+    pub fn playlist_load_files_async(
+        &mut self,
+        files: &[(&Path, FileState, Option<&str>)],
+    ) -> Result<()> {
+        self.mpv_mut().playlist_load_files_async(files)
     }
 
-    pub fn unpause(&mut self) {
-        self.mpv_mut().unpause_async().expect("mpv disconnect");
+    /// Remove every, except the current, item from the playlist.
+    pub fn playlist_clear_async(&mut self) -> Result<()> {
+        self.mpv_mut().playlist_clear_async()
+    }
+
+    /// Remove the currently selected item from the playlist.
+    pub fn playlist_remove_current_async(&mut self) -> Result<()> {
+        self.mpv_mut().playlist_remove_current_async()
+    }
+
+    /// Remove item at `position` from the playlist.
+    pub fn playlist_remove_index_async(&mut self, position: usize) -> Result<()> {
+        self.mpv_mut().playlist_remove_index_async(position)
+    }
+
+    /// Move item `old` to the position of item `new`.
+    pub fn playlist_move_async(&mut self, old: usize, new: usize) -> Result<()> {
+        self.mpv_mut().playlist_move_async(old, new)
+    }
+
+    /// Shuffle the playlist.
+    pub fn playlist_shuffle_async(&mut self) -> Result<()> {
+        self.mpv_mut().playlist_shuffle_async()
+    }
+
+    pub fn pause_async(&mut self) -> Result<()> {
+        self.mpv_mut().pause_async()
+    }
+
+    pub fn unpause_async(&mut self) -> Result<()> {
+        self.mpv_mut().unpause_async()
     }
 
     pub fn is_paused(&self) -> bool {
-        self.client.as_ref().expect("mpv uninit").is_paused()
-    }
-
-    pub fn stop(&mut self) {
-        trace!("mpv stopping playback");
-        self.mpv_mut()
-            .playlist_clear_async()
-            .expect("mpv disconnect");
-        self.mpv_mut()
-            .playlist_remove_current_async()
-            .expect("mpv disconnect");
-        // Note: removing the playlist entry doesn't stop the current playback.
-        self.pause();
-    }
-
-    pub fn seek_forward(&mut self, delta_secs: f64) {
-        self.mpv_mut()
-            .seek_forward_async(delta_secs)
-            .expect("mpv disconnect");
-    }
-
-    pub fn seek_backward(&mut self, delta_secs: f64) {
-        self.mpv_mut()
-            .seek_backward_async(delta_secs)
-            .expect("mpv disconnect");
+        self.mpv().is_paused()
     }
 }

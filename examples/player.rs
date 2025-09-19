@@ -22,7 +22,7 @@ impl App {
 
         // For the demo, we just immediately play the file passed as the first argument.
         if let Some(filename) = env::args().nth(1) {
-            app.player.play(&PathBuf::from(filename));
+            app.player.playlist_replace_async(&PathBuf::from(filename), None).ok();
         }
 
         app
@@ -38,18 +38,18 @@ impl eframe::App for App {
                 exit = true;
             } else if input.key_pressed(egui::Key::Space) {
                 if self.player.is_paused() {
-                    self.player.unpause();
+                    self.player.unpause_async().ok();
                 } else {
-                    self.player.pause();
+                    self.player.pause_async().ok();
                 }
             } else if input.key_pressed(egui::Key::ArrowRight) {
-                self.player.seek_forward(5.);
+                self.player.seek_forward_async(5.).ok();
             } else if input.key_pressed(egui::Key::ArrowLeft) {
-                self.player.seek_backward(5.);
+                self.player.seek_backward_async(5.).ok();
             } else if input.key_pressed(egui::Key::R) {
-                self.player.stop();
+                self.player.playlist_clear_async().ok();
                 if let Some(filename) = env::args().nth(1) {
-                    self.player.play(&PathBuf::from(filename));
+                    self.player.playlist_replace_async(&PathBuf::from(filename), None).ok();
                 }
             }
         });
