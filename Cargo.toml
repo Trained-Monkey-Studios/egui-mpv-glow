@@ -22,7 +22,7 @@ parking_lot = "0.12"
 
 # TODO: get these landed or remove our dependency entirely
 libmpv = { git = "https://github.com/xenon/libmpv-rs", branch = "update-to-v0.39.0", features = ["render"] }
-libmpv-sys = { git = "https://github.com/xenon/libmpv-rs", branch = "update-to-v0.39.0" }
+libmpv-sys = { git = "https://github.com/xenon/libmpv-rs", branch = "update-to-v0.39.0", features = ["use-bindgen"] }
 
 [dev-dependencies]
 env_logger = "0.11"
