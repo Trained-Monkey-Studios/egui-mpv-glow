@@ -30,6 +30,7 @@
 
             # misc. libraries
             clang
+            libclang
             cmake
             ffmpeg.dev
             gdb

@@ -253,7 +253,7 @@ impl MpvAdvancedClient {
         self.command_async("revert-seek", &[])
     }
 
-    /// Mark the current position as the position that will be seeked to by `seek_revert`.
+    /// Mark the current position as the position that will be sought to by `seek_revert`.
     pub fn seek_revert_mark_async(&mut self) -> Result<()> {
         self.command_async("revert-seek", &["mark"])
     }
