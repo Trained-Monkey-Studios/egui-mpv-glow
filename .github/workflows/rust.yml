@@ -98,9 +98,9 @@ jobs:
       # - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libmpv-dev
       - uses: amitie10g/install-package@v1
         with:
-          brew: yq
+          brew: mpv
           apt: libmpv-dev
-          choco: less
+          choco: mpv
 
       - uses: actions-rs/cargo@v1
         with:
