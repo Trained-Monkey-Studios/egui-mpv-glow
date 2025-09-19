@@ -10,7 +10,7 @@
   outputs = { self, nixpkgs, rust-overlay, flake-utils, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        rustVersion = "1.89.0";
+        rustVersion = "1.90.0";
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
       in with pkgs; {
