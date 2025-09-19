@@ -132,8 +132,7 @@ impl MpvPlayer {
         }));
 
         // Read from our events stream on the main thread and respond to MPV
-        self
-            .client
+        self.client
             .as_mut()
             .expect("not initialized")
             .drain_events();
