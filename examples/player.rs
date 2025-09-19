@@ -22,7 +22,9 @@ impl App {
 
         // For the demo, we just immediately play the file passed as the first argument.
         if let Some(filename) = env::args().nth(1) {
-            app.player.playlist_replace_async(&PathBuf::from(filename), None).ok();
+            app.player
+                .playlist_replace_async(&PathBuf::from(filename), None)
+                .ok();
         }
 
         app
@@ -49,7 +51,9 @@ impl eframe::App for App {
             } else if input.key_pressed(egui::Key::R) {
                 self.player.playlist_clear_async().ok();
                 if let Some(filename) = env::args().nth(1) {
-                    self.player.playlist_replace_async(&PathBuf::from(filename), None).ok();
+                    self.player
+                        .playlist_replace_async(&PathBuf::from(filename), None)
+                        .ok();
                 }
             }
         });

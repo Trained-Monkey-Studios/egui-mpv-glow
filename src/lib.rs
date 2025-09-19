@@ -253,11 +253,7 @@ impl MpvPlayer {
 
     pub fn playlist_replace_async(&mut self, filename: &Path, extra: Option<&str>) -> Result<()> {
         self.mpv_mut()
-            .playlist_load_files_async(&[(
-                filename,
-                FileState::Replace,
-                extra,
-            )])
+            .playlist_load_files_async(&[(filename, FileState::Replace, extra)])
     }
 
     pub fn playlist_load_files_async(
