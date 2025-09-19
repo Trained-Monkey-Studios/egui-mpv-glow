@@ -60,19 +60,9 @@ use std::{path::Path, sync::Arc};
 //   MPV usage has to be off the main thread, using async commands, and/or on the threading
 //   exception list in render.h.
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum MpvPlayerState {
-    #[default]
-    Uninitialized,
-    Stopped,
-    Playing,
-    Paused,
-}
-
 #[derive(Default)]
 pub struct MpvPlayer {
     // Mpv client and state
-    state: MpvPlayerState,
     client: Option<MpvAdvancedClient>,
     render: Option<MpvRender>,
 
@@ -94,9 +84,8 @@ impl Drop for MpvPlayer {
 
 impl MpvPlayer {
     pub fn init_with_eframe(&mut self, cc: &eframe::CreationContext<'_>) -> Result<()> {
-        // Connect to the MPV client to control playback and set initial state.
+        // Connect to the MPV client to control playback
         self.client = Some(MpvAdvancedClient::new(cc.egui_ctx.clone())?);
-        self.state = MpvPlayerState::Stopped;
 
         let client_handle = self.client.as_ref().expect("not init").handle_ptr().addr();
         self.render = Some(MpvRender::new(
@@ -143,14 +132,11 @@ impl MpvPlayer {
         }));
 
         // Read from our events stream on the main thread and respond to MPV
-        if self
+        self
             .client
             .as_mut()
             .expect("not initialized")
-            .drain_events()
-        {
-            self.state = MpvPlayerState::Stopped;
-        }
+            .drain_events();
 
         // Redraw if requested by MPV
         if self
@@ -187,13 +173,8 @@ impl MpvPlayer {
     /// Play a media file.
     /// Panics if initialize has not yet been called.
     pub fn play(&mut self, filename: &Path) {
+        self.stop();
         trace!("mpv playing file {filename:?}");
-        self.mpv_mut()
-            .playlist_clear_async()
-            .expect("mpv disconnect");
-        self.mpv_mut()
-            .playlist_remove_current_async()
-            .expect("mpv disconnect");
         self.mpv_mut()
             .playlist_load_files_async(&[(filename, libmpv::FileState::Replace, None)])
             .expect("mpv disconnect");
@@ -212,6 +193,7 @@ impl MpvPlayer {
     }
 
     pub fn stop(&mut self) {
+        trace!("mpv stopping playback");
         self.mpv_mut()
             .playlist_clear_async()
             .expect("mpv disconnect");
