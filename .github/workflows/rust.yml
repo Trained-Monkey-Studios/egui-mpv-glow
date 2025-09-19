@@ -95,7 +95,12 @@ jobs:
           override: true
       - run: rustc -vV
 
-      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libmpv-dev
+      # - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libmpv-dev
+      - uses: amitie10g/install-package@v1
+        with:
+          brew: yq
+          apt: libmpv-dev
+          choco: less
 
       - uses: actions-rs/cargo@v1
         with:
