@@ -4,8 +4,17 @@ use crate::{
 };
 use anyhow::Result;
 use crossbeam::channel;
-use log::{error, info, trace};
+use log::{debug, error, info, trace};
 use std::{collections::HashMap, ffi, mem, path::Path, ptr, thread};
+
+#[derive(Default)]
+struct AsyncClientState {
+    is_paused: bool,
+    percent_pos: f64,
+    time_pos: f64,
+    time_remaining: f64,
+    duration: f64,
+}
 
 // When using advanced mode, we're required to listen for events and respond appropriately.
 extern "C" fn mpv_update_callback(cb_ctx: *mut ffi::c_void) {
@@ -28,6 +37,7 @@ pub struct MpvAdvancedClient {
     omt: thread::JoinHandle<()>,
     next_id: u64,
     outstanding: HashMap<u64, ClientRequest>,
+    async_state: AsyncClientState,
 }
 
 impl Drop for MpvAdvancedClient {
@@ -96,11 +106,35 @@ impl MpvAdvancedClient {
             omt,
             next_id: 1,
             outstanding: HashMap::new(),
+            async_state: AsyncClientState::default(),
         })
     }
 
     pub(crate) fn handle_ptr(&self) -> *mut libmpv_sys::mpv_handle {
         self.client.ctx.as_ptr()
+    }
+
+    fn send_reply_receipt(
+        &mut self,
+        event: &libmpv_sys::mpv_event,
+        verbose: bool,
+    ) -> Option<ClientRequest> {
+        self.omt_send
+            .send(ClientRequest::Completed(event.reply_userdata))
+            .expect("omt disconnect");
+        if let Some(msg) = self.outstanding.remove(&event.reply_userdata) {
+            if event.error == 0 {
+                if verbose {
+                    debug!("mpv ok: {msg}");
+                }
+                return Some(msg);
+            } else if verbose {
+                error!("mpv error {}: {msg}", event.error);
+            }
+        } else if verbose {
+            error!("mpv responded to missing task: {event:#?}");
+        }
+        None
     }
 
     pub(crate) fn drain_events(&mut self) -> bool {
@@ -122,17 +156,67 @@ impl MpvAdvancedClient {
                     libmpv_sys::mpv_event_id_MPV_EVENT_NONE => break,
                     libmpv_sys::mpv_event_id_MPV_EVENT_SET_PROPERTY_REPLY
                     | libmpv_sys::mpv_event_id_MPV_EVENT_COMMAND_REPLY => {
-                        self.omt_send
-                            .send(ClientRequest::Completed(event.reply_userdata))
-                            .expect("omt disconnect");
-                        if let Some(msg) = self.outstanding.remove(&event.reply_userdata) {
-                            if event.error == 0 {
-                                info!("mpv ok: {msg}");
-                            } else {
-                                error!("mpv error {}: {msg}", event.error);
+                        self.send_reply_receipt(&event, true);
+                    }
+                    libmpv_sys::mpv_event_id_MPV_EVENT_GET_PROPERTY_REPLY => {
+                        if let Some(msg) = self.send_reply_receipt(&event, true) {
+                            let prop: *const libmpv_sys::mpv_event_property = event.data.cast();
+                            // SAFETY: as_ref checks for null; mpv_event_command is the documented data for this event.
+                            if let Some(prop) = unsafe { prop.as_ref() } {
+                                match prop.format {
+                                    libmpv_sys::mpv_format_MPV_FORMAT_STRING => {
+                                        panic!("get string property should be unused")
+                                    }
+                                    libmpv_sys::mpv_format_MPV_FORMAT_OSD_STRING => {
+                                        panic!("get osd string property should be unused")
+                                    }
+                                    libmpv_sys::mpv_format_MPV_FORMAT_FLAG => {
+                                        let ClientRequest::GetPropertyFlag(_id, name) = msg else {
+                                            panic!("unexpected message type");
+                                        };
+                                        assert_eq!(name, "pause", "unexpected flag property");
+                                        let flag_p: *const ffi::c_int = prop.data.cast();
+                                        // SAFETY: see documentation on MPV_FORMAT_FLAG
+                                        self.async_state.is_paused = unsafe { *flag_p } != 0;
+                                    }
+                                    libmpv_sys::mpv_format_MPV_FORMAT_INT64 => {
+                                        panic!("get int64 property should be unused")
+                                    }
+                                    libmpv_sys::mpv_format_MPV_FORMAT_DOUBLE => {
+                                        let ClientRequest::GetPropertyDouble(_id, name) = msg
+                                        else {
+                                            panic!("unexpected message type");
+                                        };
+                                        let dbl_p: *const ffi::c_double = prop.data.cast();
+                                        // SAFETY: see documentation on MPV_FORMAT_DOUBLE
+                                        let value = unsafe { *dbl_p };
+                                        match name.as_str() {
+                                            "percent-pos" => self.async_state.percent_pos = value,
+                                            "time-pos" => self.async_state.time_pos = value,
+                                            "time-remaining" => {
+                                                self.async_state.time_remaining = value;
+                                            }
+                                            "duration" => {
+                                                self.async_state.duration = value;
+                                            }
+                                            _ => panic!("unexpected double property name"),
+                                        }
+                                    }
+                                    libmpv_sys::mpv_format_MPV_FORMAT_NODE => {
+                                        panic!("get node property should be unused")
+                                    }
+                                    libmpv_sys::mpv_format_MPV_FORMAT_NODE_ARRAY => {
+                                        panic!("get node array property should be unused")
+                                    }
+                                    libmpv_sys::mpv_format_MPV_FORMAT_NODE_MAP => {
+                                        panic!("get node map property should be unused")
+                                    }
+                                    libmpv_sys::mpv_format_MPV_FORMAT_BYTE_ARRAY => {
+                                        panic!("get byte array property should be unused")
+                                    }
+                                    /* libmpv_sys::mpv_format_MPV_FORMAT_NONE */ _ => {}
+                                }
                             }
-                        } else {
-                            error!("mpv responded to missing task: {event:#?}");
                         }
                     }
                     libmpv_sys::mpv_event_id_MPV_EVENT_LOG_MESSAGE => {
@@ -159,18 +243,18 @@ impl MpvAdvancedClient {
                         // SAFETY: per the docs, the only element in the struct passed here is the playlist offset.
                         let playlist =
                             unsafe { *(event.data as *const libmpv_sys::mpv_event_start_file) };
-                        trace!(
+                        debug!(
                             "mpv started playing file at playlist entry id: {}",
                             playlist.playlist_entry_id
                         );
                     }
                     libmpv_sys::mpv_event_id_MPV_EVENT_END_FILE => {
-                        trace!("mpv finished playing file, stopping automatically");
+                        debug!("mpv finished playing file, stopping automatically");
                         stopped = true;
                     }
                     libmpv_sys::mpv_event_id_MPV_EVENT_IDLE => {}
                     libmpv_sys::mpv_event_id_MPV_EVENT_FILE_LOADED => {
-                        trace!("mpv decoding started on current file");
+                        debug!("mpv decoding started on current file");
                     }
                     libmpv_sys::mpv_event_id_MPV_EVENT_AUDIO_RECONFIG => {
                         trace!("mpv audio has been reconfigured");
@@ -187,12 +271,25 @@ impl MpvAdvancedClient {
                     }
                     libmpv_sys::mpv_event_id_MPV_EVENT_PLAYBACK_RESTART => {
                         // Playback position update or start is complete
-                        trace!("mpv video seek finished");
+                        debug!("mpv video seek finished");
                     }
-                    _ => trace!("unrecognized mpv event: {event:#?}"),
+                    _ => info!("unrecognized mpv event: {event:#?}"),
                 }
             }
         }
+
+        // Send requests to update our async client state.
+        self.get_property_flag_async("pause")
+            .expect("client disconnect");
+        self.get_property_double_async("percent-pos")
+            .expect("client disconnect");
+        self.get_property_double_async("time-pos")
+            .expect("client disconnect");
+        self.get_property_double_async("time-remaining")
+            .expect("client disconnect");
+        self.get_property_double_async("duration")
+            .expect("client disconnect");
+
         stopped
     }
 
@@ -211,6 +308,24 @@ impl MpvAdvancedClient {
         let id = self.next_id;
         self.next_id += 1;
         let msg = ClientRequest::SetPropertyFlag(id, name.to_owned(), value);
+        self.outstanding.insert(id, msg.clone());
+        self.omt_send.send(msg)?;
+        Ok(())
+    }
+
+    pub fn get_property_flag_async(&mut self, name: &str) -> Result<()> {
+        let id = self.next_id;
+        self.next_id += 1;
+        let msg = ClientRequest::GetPropertyFlag(id, name.to_owned());
+        self.outstanding.insert(id, msg.clone());
+        self.omt_send.send(msg)?;
+        Ok(())
+    }
+
+    pub fn get_property_double_async(&mut self, name: &str) -> Result<()> {
+        let id = self.next_id;
+        self.next_id += 1;
+        let msg = ClientRequest::GetPropertyDouble(id, name.to_owned());
         self.outstanding.insert(id, msg.clone());
         self.omt_send.send(msg)?;
         Ok(())
@@ -245,7 +360,7 @@ impl MpvAdvancedClient {
 
     /// Seek to the given percentage of the playtime.
     pub fn seek_percent_absolute_async(&mut self, percent: usize) -> Result<()> {
-        self.command_async("seek", &[&format!("{percent}"), "relative-percent"])
+        self.command_async("seek", &[&format!("{percent}"), "absolute-percent"])
     }
 
     /// Revert the previous `seek_` call, can also revert itself.
@@ -352,6 +467,22 @@ impl MpvAdvancedClient {
     }
 
     pub fn is_paused(&self) -> bool {
-        self.client.get_property("pause").unwrap_or(false)
+        self.async_state.is_paused
+    }
+
+    pub fn percent_pos(&self) -> f64 {
+        self.async_state.percent_pos
+    }
+
+    pub fn time_pos(&self) -> f64 {
+        self.async_state.time_pos
+    }
+
+    pub fn time_remaining(&self) -> f64 {
+        self.async_state.time_remaining
+    }
+
+    pub fn duration(&self) -> f64 {
+        self.async_state.duration
     }
 }

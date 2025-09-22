@@ -76,9 +76,39 @@ impl eframe::App for App {
                 return;
             };
 
-            // paint_at doesn't allocate space, so we could proceed to draw video controls on top
+            // paint_at doesn't allocate space, so we can proceed to draw video controls on top
             // of the video. If you want the video to consume space, use `ui.add(img)`.
             img.paint_at(ui, window_rect);
+
+            // Draw controls over the video
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Max), |ui| {
+                ui.horizontal(|ui| {
+                    if self.player.is_paused() && ui.button("▶").clicked() {
+                        self.player.unpause_async().ok();
+                    } else if ui.button("⏸").clicked() {
+                        self.player.pause_async().ok();
+                    }
+                    let time_pos = self.player.time_pos();
+                    ui.label(format!("{:02.0}:{:02.0}", time_pos / 60.0, time_pos % 60.0));
+                    let mut percent_pos = self.player.percent_pos();
+                    let slider = egui::Slider::new(&mut percent_pos, 0f64..=100f64)
+                        .handle_shape(egui::style::HandleShape::Rect { aspect_ratio: 0.25 })
+                        .show_value(false);
+                    if ui.add(slider).changed() {
+                        self.player
+                            .seek_percent_absolute_async(percent_pos as usize)
+                            .ok();
+                    }
+                    let duration = self.player.duration();
+                    ui.label(format!("{:02.0}:{:02.0}", duration / 60.0, duration % 60.0));
+                    if ui.button("⏪").clicked() {
+                        self.player.seek_absolute_async(0.).ok();
+                    }
+                    if ui.button("⏩").clicked() {
+                        self.player.seek_forward_async(5.).ok();
+                    }
+                });
+            });
         });
     }
 }

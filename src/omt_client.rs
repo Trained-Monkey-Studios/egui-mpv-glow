@@ -17,6 +17,8 @@ pub enum ClientRequest {
     Completed(u64),
     Command(u64, Vec<String>),
     SetPropertyFlag(u64, String, bool),
+    GetPropertyFlag(u64, String),
+    GetPropertyDouble(u64, String),
 }
 
 impl fmt::Display for ClientRequest {
@@ -26,6 +28,8 @@ impl fmt::Display for ClientRequest {
             Self::Completed(id) => write!(f, "completed[{id}]"),
             Self::Command(id, cmd) => write!(f, "command[{id}] {}", cmd.join(" ")),
             Self::SetPropertyFlag(id, name, data) => write!(f, "set-property[{id}] {name} {data}"),
+            Self::GetPropertyFlag(id, name) => write!(f, "get-property-bool[{id}] {name}"),
+            Self::GetPropertyDouble(id, name) => write!(f, "get-property-f64[{id}] {name}"),
         }
     }
 }
@@ -84,6 +88,16 @@ impl MpvOmtClient {
                         self.set_property_flag_async(id, &name, data)
                             .expect("failed to set prop async");
                     }
+                    ClientRequest::GetPropertyFlag(id, name) => {
+                        self.active = Some(id);
+                        self.get_property_async(id, &name, libmpv::mpv_format::Flag)
+                            .expect("failed to get prop async");
+                    }
+                    ClientRequest::GetPropertyDouble(id, name) => {
+                        self.active = Some(id);
+                        self.get_property_async(id, &name, libmpv::mpv_format::Double)
+                            .expect("failed to get prop async");
+                    }
                 }
             }
         }
@@ -122,6 +136,19 @@ impl MpvOmtClient {
                     ptr,
                 )
             })
+        })
+    }
+
+    fn get_property_async(
+        &self,
+        id: u64,
+        name: &str,
+        format: libmpv_sys::mpv_format,
+    ) -> libmpv::Result<()> {
+        let name = ffi::CString::new(name)?;
+        // SAFETY: see comment in command_async.
+        mpv_err((), unsafe {
+            libmpv_sys::mpv_get_property_async(self.handle, id, name.as_ptr(), format)
         })
     }
 }
