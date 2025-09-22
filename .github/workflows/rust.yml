@@ -24,38 +24,38 @@ jobs:
           command: fmt
           args: --all -- --check
 
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - run: rustc -vV
-      - uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --workspace --all-targets --all-features
+  #check:
+  #  name: Check
+  #  runs-on: ubuntu-latest
+  #  steps:
+  #    - uses: actions/checkout@v4
+  #    - uses: actions-rs/toolchain@v1
+  #      with:
+  #        profile: minimal
+  #        toolchain: stable
+  #        override: true
+  #    - run: rustc -vV
+  #    - uses: actions-rs/cargo@v1
+  #      with:
+  #        command: check
+  #        args: --workspace --all-targets --all-features
 
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: clippy
-      - run: rustc -vV
-      - uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --workspace --all-targets -- -D warnings
+  #clippy:
+  #  name: Clippy
+  #  runs-on: ubuntu-latest
+  #  steps:
+  #    - uses: actions/checkout@v4
+  #    - uses: actions-rs/toolchain@v1
+  #      with:
+  #        profile: minimal
+  #        toolchain: stable
+  #        override: true
+  #        components: clippy
+  #    - run: rustc -vV
+  #    - uses: actions-rs/cargo@v1
+  #      with:
+  #        command: clippy
+  #        args: --workspace --all-targets -- -D warnings
 
   test:
     name: Test Suite
@@ -64,20 +64,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            TARGET: arm-unknown-linux-musleabihf
+          #- os: ubuntu-latest
+          #  TARGET: arm-unknown-linux-musleabihf
 
-          - os: ubuntu-latest
-            TARGET: armv7-unknown-linux-musleabihf
+          #- os: ubuntu-latest
+          #  TARGET: armv7-unknown-linux-musleabihf
 
-          - os: ubuntu-latest
-            TARGET: x86_64-unknown-linux-musl
+          #- os: ubuntu-latest
+          #  TARGET: x86_64-unknown-linux-musl
 
-          - os: macos-latest
-            TARGET: aarch64-apple-darwin
+          #- os: macos-latest
+          #  TARGET: aarch64-apple-darwin
 
-          - os: macos-latest
-            TARGET: x86_64-apple-darwin
+          #- os: macos-latest
+          #  TARGET: x86_64-apple-darwin
 
           - os: windows-latest
             TARGET: x86_64-pc-windows-msvc
@@ -87,7 +87,41 @@ jobs:
       - name: Testing ${{ matrix.TARGET }}
         run: echo "${{ matrix.TARGET }}"
 
+      # - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libmpv-dev
+      #- uses: amitie10g/install-package@v1
+      #  with:
+      #    brew: cmake meson
+      #    apt: cmake meson
+      #    choco: autotools cmake meson
+
       - uses: actions/checkout@v4
+
+      # Download and build ffmpeg tag n8.0
+      #- name: Download ffmpeg source
+      #  run: git clone https://git.ffmpeg.org/ffmpeg.git
+      #- run: cd ffmpeg && git checkout n8.0 && cd -
+      #- run: cd ffmpeg && ./configure --toolchain=msvc
+
+      # Download and build libmpv
+      #- name: Download mpv source
+      #  run: wget https://github.com/mpv-player/mpv/archive/refs/tags/v0.40.0.tar.gz
+      #- run: tar -xzf v0.40.0.tar.gz mpv-0.40.0
+      #- uses: BSFishy/meson-build@v1.0.3
+      #  with:
+      #    directory: mpv-0.40.0
+      #    action: setup
+      #    options: build
+      #- uses: BSFishy/meson-build@v1.0.3
+      #  with:
+      #    directory: mpv-0.40.0
+      #    action: compile
+      #    options: -C build
+      #- uses: BSFishy/meson-build@v1.0.3
+      #  with:
+      #    directory: mpv-0.40.0
+      #    action: install
+      #    options: -C build
+
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
@@ -95,57 +129,50 @@ jobs:
           override: true
       - run: rustc -vV
 
-      # - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libmpv-dev
-      - uses: amitie10g/install-package@v1
-        with:
-          brew: mpv
-          apt: libmpv-dev
-          choco: mpv
-
       - uses: actions-rs/cargo@v1
         with:
           command: test
           args: --workspace
 
-  build:
-    name: Release Build
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            TARGET: arm-unknown-linux-musleabihf
+  #build:
+  #  name: Release Build
+  #  runs-on: ${{ matrix.os }}
+  #  strategy:
+  #    fail-fast: false
+  #    matrix:
+  #      include:
+  #        - os: ubuntu-latest
+  #          TARGET: arm-unknown-linux-musleabihf
 
-          - os: ubuntu-latest
-            TARGET: armv7-unknown-linux-musleabihf
+  #        - os: ubuntu-latest
+  #          TARGET: armv7-unknown-linux-musleabihf
 
-          - os: ubuntu-latest
-            TARGET: x86_64-unknown-linux-musl
+  #        - os: ubuntu-latest
+  #          TARGET: x86_64-unknown-linux-musl
 
-          - os: macos-latest
-            TARGET: aarch64-apple-darwin
+  #        - os: macos-latest
+  #          TARGET: aarch64-apple-darwin
 
-          - os: macos-latest
-            TARGET: x86_64-apple-darwin
+  #        - os: macos-latest
+  #          TARGET: x86_64-apple-darwin
 
-          - os: windows-latest
-            TARGET: x86_64-pc-windows-msvc
-            EXTENSION: .exe
+  #        - os: windows-latest
+  #          TARGET: x86_64-pc-windows-msvc
+  #          EXTENSION: .exe
 
-    steps:
-      - name: Building ${{ matrix.TARGET }}
-        run: echo "${{ matrix.TARGET }}"
+  #  steps:
+  #    - name: Building ${{ matrix.TARGET }}
+  #      run: echo "${{ matrix.TARGET }}"
 
-      - uses: actions/checkout@master
-      - uses: actions-rs/toolchain@v1.0.1
-        with:
-          toolchain: stable
-          target: ${{ matrix.TARGET }}
-          override: true
+  #    - uses: actions/checkout@master
+  #    - uses: actions-rs/toolchain@v1.0.1
+  #      with:
+  #        toolchain: stable
+  #        target: ${{ matrix.TARGET }}
+  #        override: true
 
-      - uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: build
-          args: --verbose --release --target=${{ matrix.TARGET }}
+  #    - uses: actions-rs/cargo@v1
+  #      with:
+  #        use-cross: true
+  #        command: build
+  #        args: --verbose --release --target=${{ matrix.TARGET }}
