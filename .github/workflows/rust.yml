@@ -72,7 +72,8 @@ jobs:
           brew: mpv
           apt: libmpv-dev
 
-      - run: ls -l /opt/homebrew/Cellar/mpv/0.40.0_4
+      - run: ls -lR /opt/homebrew/Cellar/mpv/0.40.0_4
+      - run: ls -l /opt/homebrew/Cellar/mpv/0.40.0_4/lib
 
       - uses: actions/checkout@v4
 
