@@ -8,7 +8,7 @@ fn main() {
     println!(r"cargo:rustc-link-search=vendor/mpv-dev-aarch64");
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn main() {
     use std::fs;
     let entry: fs::DirEntry = fs::read_dir("/opt/homebrew/Cellar/mpv/")
@@ -20,6 +20,11 @@ fn main() {
     lib_dir.push("lib");
 
     println!("cargo:rustc-link-search={}", lib_dir.to_string_lossy());
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn main() {
+    // Homebrew installs to /usr/local/Cellar on this image and that is in the path already.
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
