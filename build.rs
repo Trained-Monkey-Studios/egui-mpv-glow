@@ -19,7 +19,7 @@ fn main() {
     let mut lib_dir = entry.path().to_owned();
     lib_dir.push("lib");
 
-    println!(format!("cargo:rustc-link-search={lib_dir:?}"));
+    println!("cargo:rustc-link-search={lib_dir:?}");
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
