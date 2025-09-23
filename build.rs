@@ -10,7 +10,16 @@ fn main() {
 
 #[cfg(target_os = "macos")]
 fn main() {
-    println!(r"cargo:rustc-link-search=/opt/homebrew/Cellar/mpv/*/lib");
+    use std::fs;
+    let entry: fs::DirEntry = fs::read_dir("/opt/homebrew/Cellar/mpv/")
+        .expect("mpv not installed (read_dir)")
+        .next()
+        .expect("mpv not installed (no subdir)")
+        .expect("mpv not installed (cannot read subdir)");
+    let mut lib_dir = entry.path().to_owned();
+    lib_dir.push("lib");
+
+    println!(format!("cargo:rustc-link-search={lib_dir:?}"));
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
