@@ -83,6 +83,8 @@ jobs:
             TARGET: x86_64-pc-windows-msvc
             EXTENSION: .exe
 
+          # mpv-dev-aarch64-20250923-git-ee0f701.7z
+
     steps:
       - name: Testing ${{ matrix.TARGET }}
         run: echo "${{ matrix.TARGET }}"
@@ -94,33 +96,16 @@ jobs:
       #    apt: cmake meson
       #    choco: autotools cmake meson
 
+      - uses: milliewalky/setup-7-zip@v2
+
       - uses: actions/checkout@v4
 
-      # Download and build ffmpeg tag n8.0
-      #- name: Download ffmpeg source
-      #  run: git clone https://git.ffmpeg.org/ffmpeg.git
-      #- run: cd ffmpeg && git checkout n8.0 && cd -
-      #- run: cd ffmpeg && ./configure --toolchain=msvc
-
-      # Download and build libmpv
-      #- name: Download mpv source
-      #  run: wget https://github.com/mpv-player/mpv/archive/refs/tags/v0.40.0.tar.gz
-      #- run: tar -xzf v0.40.0.tar.gz mpv-0.40.0
-      #- uses: BSFishy/meson-build@v1.0.3
-      #  with:
-      #    directory: mpv-0.40.0
-      #    action: setup
-      #    options: build
-      #- uses: BSFishy/meson-build@v1.0.3
-      #  with:
-      #    directory: mpv-0.40.0
-      #    action: compile
-      #    options: -C build
-      #- uses: BSFishy/meson-build@v1.0.3
-      #  with:
-      #    directory: mpv-0.40.0
-      #    action: install
-      #    options: -C build
+      - run: mkdir vendor\mpv-dev-x86_64
+      - run: 7z x -y -o vendor\mpv-dev-x86_64 vendor\mpv-dev-x86_64-20250923-git-ee0f701.7z
+      - run: dir vendor\
+      - run: dir vendor\mpv-dev-x86_64\
+      - run: mv vendor\mpv-dev-x86_64\libmpv.dll.a vendor\mpv-dev-x86_64\mpv.lib
+      - run: $env:RUSTFLAGS += " -L vendor\mpv-dev-x86_64\"
 
       - uses: actions-rs/toolchain@v1
         with:
