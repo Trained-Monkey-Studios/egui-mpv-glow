@@ -1,9 +1,12 @@
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 fn main() {
     println!(r"cargo:rustc-link-search=vendor/mpv-dev-x86_64");
 }
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(all(target_os = "windows", target_arch = "aarch64"))]
 fn main() {
     println!(r"cargo:rustc-link-search=vendor/mpv-dev-aarch64");
 }
+
+#[cfg(not(target_os = "windows"))]
+fn main() {}
