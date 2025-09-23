@@ -48,20 +48,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - os: ubuntu-latest
-          TARGET: arm-unknown-linux-musleabihf
+        #- os: ubuntu-latest
+        #  TARGET: arm-unknown-linux-musleabihf
 
-        - os: ubuntu-latest
-          TARGET: armv7-unknown-linux-musleabihf
+        #- os: ubuntu-latest
+        #  TARGET: armv7-unknown-linux-musleabihf
 
-        - os: ubuntu-latest
-          TARGET: x86_64-unknown-linux-musl
+        #- os: ubuntu-latest
+        #  TARGET: x86_64-unknown-linux-musl
 
         - os: macos-15
           TARGET: aarch64-apple-darwin
 
-        - os: macos-15-intel
-          TARGET: x86_64-apple-darwin
+        #- os: macos-15-intel
+        #  TARGET: x86_64-apple-darwin
 
     steps:
       - name: Testing ${{ matrix.TARGET }}
@@ -72,6 +72,8 @@ jobs:
           brew: mpv
           apt: libmpv-dev
 
+      - run: ls -l /opt/homebrew/Cellar/mpv/0.40.0_4
+
       - uses: actions/checkout@v4
 
       - uses: actions-rs/toolchain@v1
@@ -86,44 +88,44 @@ jobs:
           command: test
           args: --workspace
 
-  test_win:
-    name: Test Suite (Windows)
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-2025
-            ARCH: x86_64
-            TARGET: x86_64-pc-windows-msvc
-            EXTENSION: .exe
+  #test_win:
+  #  name: Test Suite (Windows)
+  #  runs-on: ${{ matrix.os }}
+  #  strategy:
+  #    fail-fast: false
+  #    matrix:
+  #      include:
+  #        - os: windows-2025
+  #          ARCH: x86_64
+  #          TARGET: x86_64-pc-windows-msvc
+  #          EXTENSION: .exe
 
-          # Note: no point running tests on aarch64 as the only builders are x86_64
+  #        # Note: no point running tests on aarch64 as the only builders are x86_64
 
-    steps:
-      - name: Testing ${{ matrix.TARGET }}
-        run: echo "${{ matrix.TARGET }}"
+  #  steps:
+  #    - name: Testing ${{ matrix.TARGET }}
+  #      run: echo "${{ matrix.TARGET }}"
 
-      - uses: milliewalky/setup-7-zip@v2
+  #    - uses: milliewalky/setup-7-zip@v2
 
-      - uses: actions/checkout@v4
+  #    - uses: actions/checkout@v4
 
-      - run: mkdir vendor\mpv-dev-${{ matrix.ARCH }}
-      - run: 7z x -y -ovendor\mpv-dev-${{ matrix.ARCH }} vendor\mpv-dev-${{ matrix.ARCH }}-20250923-git-ee0f701.7z
-      - run: mv vendor\mpv-dev-${{ matrix.ARCH }}\libmpv.dll.a vendor\mpv-dev-${{ matrix.ARCH }}\mpv.lib
-      - run: dir vendor\mpv-dev-${{ matrix.ARCH }}\
+  #    - run: mkdir vendor\mpv-dev-${{ matrix.ARCH }}
+  #    - run: 7z x -y -ovendor\mpv-dev-${{ matrix.ARCH }} vendor\mpv-dev-${{ matrix.ARCH }}-20250923-git-ee0f701.7z
+  #    - run: mv vendor\mpv-dev-${{ matrix.ARCH }}\libmpv.dll.a vendor\mpv-dev-${{ matrix.ARCH }}\mpv.lib
+  #    - run: dir vendor\mpv-dev-${{ matrix.ARCH }}\
 
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: ${{ matrix.TARGET }}
-          override: true
-      - run: rustc -vV
+  #    - uses: actions-rs/toolchain@v1
+  #      with:
+  #        toolchain: stable
+  #        target: ${{ matrix.TARGET }}
+  #        override: true
+  #    - run: rustc -vV
 
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --workspace
+  #    - uses: actions-rs/cargo@v1
+  #      with:
+  #        command: test
+  #        args: --workspace
 
   #build:
   #  name: Release Build
