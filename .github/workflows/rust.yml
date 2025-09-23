@@ -57,8 +57,8 @@ jobs:
   #        command: clippy
   #        args: --workspace --all-targets -- -D warnings
 
-  test:
-    name: Test Suite
+  test_win:
+    name: Test Suite (Windows)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -79,33 +79,28 @@ jobs:
           #- os: macos-latest
           #  TARGET: x86_64-apple-darwin
 
-          - os: windows-latest
+          - os: windows-2025
+            ARCH: x86_64
             TARGET: x86_64-pc-windows-msvc
             EXTENSION: .exe
 
-          # mpv-dev-aarch64-20250923-git-ee0f701.7z
+          - os: windows-2025
+            ARCH: aarch64
+            TARGET: aarch64-pc-windows-msvc
+            EXTENSION: .exe
 
     steps:
       - name: Testing ${{ matrix.TARGET }}
         run: echo "${{ matrix.TARGET }}"
 
-      # - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libmpv-dev
-      #- uses: amitie10g/install-package@v1
-      #  with:
-      #    brew: cmake meson
-      #    apt: cmake meson
-      #    choco: autotools cmake meson
-
       - uses: milliewalky/setup-7-zip@v2
 
       - uses: actions/checkout@v4
 
-      - run: mkdir vendor\mpv-dev-x86_64
-      - run: 7z x -y -ovendor\mpv-dev-x86_64 vendor\mpv-dev-x86_64-20250923-git-ee0f701.7z
-      - run: mv vendor\mpv-dev-x86_64\libmpv.dll.a vendor\mpv-dev-x86_64\mpv.lib
-      - run: dir vendor\mpv-dev-x86_64\
-
-      # - run: $env:RUSTFLAGS += " -L vendor\mpv-dev-x86_64\"
+      - run: mkdir vendor\mpv-dev-${{ matrix.ARCH }}
+      - run: 7z x -y -ovendor\mpv-dev-${{ matrix.ARCH }} vendor\mpv-dev-${{ matrix.ARCH }}-20250923-git-ee0f701.7z
+      - run: mv vendor\mpv-dev-${{ matrix.ARCH }}\libmpv.dll.a vendor\mpv-dev-${{ matrix.ARCH }}\mpv.lib
+      - run: dir vendor\mpv-dev-${{ matrix.ARCH }}\
 
       - uses: actions-rs/toolchain@v1
         with:
