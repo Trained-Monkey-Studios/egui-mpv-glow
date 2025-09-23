@@ -8,5 +8,10 @@ fn main() {
     println!(r"cargo:rustc-link-search=vendor/mpv-dev-aarch64");
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+fn main() {
+    println!(r"cargo:rustc-link-search=/opt/homebrew/Cellar/mpv/*/lib");
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn main() {}
