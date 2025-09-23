@@ -130,10 +130,7 @@ impl MpvPlayer {
         }));
 
         // Read from our events stream on the main thread and respond to MPV
-        self.client
-            .as_mut()
-            .expect("not initialized")
-            .drain_events();
+        self.monitor_events();
 
         // Redraw if requested by MPV
         if self
@@ -160,6 +157,16 @@ impl MpvPlayer {
                 size: tex.size().max.to_vec2(),
             })
         })
+    }
+
+    // Keep mpv's connection alive and monitored, without syncing on the graphics engine. For use
+    // if the video is temporarily not being shown.
+    pub fn monitor_events(&mut self) {
+        // Read from our events stream on the main thread and respond to MPV
+        self.client
+            .as_mut()
+            .expect("not initialized")
+            .drain_events();
     }
 
     /// Panics if initialize has not yet been called.
@@ -298,5 +305,21 @@ impl MpvPlayer {
 
     pub fn is_paused(&self) -> bool {
         self.mpv().is_paused()
+    }
+
+    pub fn percent_pos(&self) -> f64 {
+        self.mpv().percent_pos()
+    }
+
+    pub fn time_pos(&self) -> f64 {
+        self.mpv().time_pos()
+    }
+
+    pub fn time_remaining(&self) -> f64 {
+        self.mpv().time_remaining()
+    }
+
+    pub fn duration(&self) -> f64 {
+        self.mpv().duration()
     }
 }

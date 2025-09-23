@@ -8,6 +8,7 @@ homepage = "https://github.com/Trained-Monkey-Studios/egui-mpv-glow"
 repository = "https://github.com/Trained-Monkey-Studios/egui-mpv-glow"
 documentation = "https://github.com/Trained-Monkey-Studios/egui-mpv-glow"
 license = "MIT"
+build = "build.rs"
 
 [dependencies]
 anyhow = "1.0"

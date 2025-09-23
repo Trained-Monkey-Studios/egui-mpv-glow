@@ -1,4 +1,9 @@
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
 
 name: CI
 
@@ -7,36 +12,6 @@ env:
   RUSTDOCFLAGS: -D warnings
 
 jobs:
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --all-features
-
-  test:
-    name: Test Suite
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libmpv-dev
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
@@ -48,6 +23,7 @@ jobs:
           toolchain: stable
           override: true
           components: rustfmt
+      - run: rustc -vV
       - uses: actions-rs/cargo@v1
         with:
           command: fmt
@@ -64,23 +40,19 @@ jobs:
           toolchain: stable
           override: true
           components: clippy
+      - run: rustc -vV
       - uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: -- -D warnings
+          args: --workspace --all-targets -- -D warnings
 
-  build:
+  test_nix:
+    name: Test Suite (Unix)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-        - os: macos-latest
-          TARGET: aarch64-apple-darwin
-
-        - os: macos-latest
-          TARGET: x86_64-apple-darwin
-
         - os: ubuntu-latest
           TARGET: arm-unknown-linux-musleabihf
 
@@ -90,23 +62,70 @@ jobs:
         - os: ubuntu-latest
           TARGET: x86_64-unknown-linux-musl
 
-        - os: windows-latest
-          TARGET: x86_64-pc-windows-msvc
-          EXTENSION: .exe
+        - os: macos-15
+          TARGET: aarch64-apple-darwin
+
+        - os: macos-15-intel
+          TARGET: x86_64-apple-darwin
 
     steps:
-    - name: Building ${{ matrix.TARGET }}
-      run: echo "${{ matrix.TARGET }}"
+      - name: Testing ${{ matrix.TARGET }}
+        run: echo "${{ matrix.TARGET }}"
 
-    - uses: actions/checkout@master
-    - uses: actions-rs/toolchain@v1.0.1
-      with:
-        toolchain: stable
-        target: ${{ matrix.TARGET }}
-        override: true
+      - uses: amitie10g/install-package@v1
+        with:
+          brew: mpv
+          apt: libmpv-dev
 
-    - uses: actions-rs/cargo@v1
-      with:
-        use-cross: true
-        command: build
-        args: --verbose --release --target=${{ matrix.TARGET }}
+      - uses: actions/checkout@v4
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.TARGET }}
+          override: true
+      - run: rustc -vV
+
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --workspace
+
+  test_win:
+    name: Test Suite (Windows)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            ARCH: x86_64
+            TARGET: x86_64-pc-windows-msvc
+            EXTENSION: .exe
+
+          # Note: no point running tests on aarch64 as the only builders are x86_64
+
+    steps:
+      - name: Testing ${{ matrix.TARGET }}
+        run: echo "${{ matrix.TARGET }}"
+
+      - uses: milliewalky/setup-7-zip@v2
+
+      - uses: actions/checkout@v4
+
+      - run: mkdir vendor\mpv-dev-${{ matrix.ARCH }}
+      - run: 7z x -y -ovendor\mpv-dev-${{ matrix.ARCH }} vendor\mpv-dev-${{ matrix.ARCH }}-20250923-git-ee0f701.7z
+      - run: mv vendor\mpv-dev-${{ matrix.ARCH }}\libmpv.dll.a vendor\mpv-dev-${{ matrix.ARCH }}\mpv.lib
+      - run: dir vendor\mpv-dev-${{ matrix.ARCH }}\
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.TARGET }}
+          override: true
+      - run: rustc -vV
+
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --workspace
