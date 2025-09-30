@@ -128,6 +128,13 @@ impl MpvAdvancedClient {
                     debug!("mpv ok: {msg}");
                 }
                 return Some(msg);
+            } else if event.error == -10
+                && matches!(
+                    msg,
+                    ClientRequest::GetPropertyFlag(_, _) | ClientRequest::GetPropertyDouble(_, _)
+                )
+            {
+                // Note: ignore get-property related errors
             } else if verbose {
                 error!("mpv error {}: {msg}", event.error);
             }
