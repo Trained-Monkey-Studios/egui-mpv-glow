@@ -10,23 +10,13 @@
   outputs = { self, nixpkgs, rust-overlay, flake-utils, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        rustVersion = "1.90.0";
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
       in with pkgs; {
         devShells.default = mkShell rec {
           buildInputs = [
             # Rust
-            (rust-bin.stable.${rustVersion}.default.override {
-              extensions = [
-                "rust-std"
-                "rustfmt"
-                "rust-src" # for rust-analyzer
-                "rust-analyzer"
-              ];
-              targets = [];
-            })
-            trunk
+            rust-bin.stable.latest.default
 
             # misc. libraries
             clang
@@ -34,7 +24,7 @@
             cmake
             ffmpeg.dev
             gdb
-            mold-wrapped
+            mold
             mpv
             pipewire.dev
             pkg-config
@@ -49,10 +39,10 @@
             wayland
 
             # x11 libraries
-            xorg.libXcursor
-            xorg.libXrandr
-            xorg.libXi
-            xorg.libX11
+            libXcursor
+            libXrandr
+            libXi
+            libX11
             libdrm.dev
           ];
 
