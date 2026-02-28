@@ -81,6 +81,8 @@ impl Drop for MpvPlayer {
 }
 
 impl MpvPlayer {
+    /// While `MpvPlayer` is Default so that it can be used with `EFrame` easily, it won't
+    /// actually be able to do anything until it is initialized with the GL context.
     pub fn init_with_eframe(&mut self, cc: &eframe::CreationContext<'_>) -> Result<()> {
         // Connect to the MPV client to control playback
         self.client = Some(MpvAdvancedClient::new(cc.egui_ctx.clone())?);
@@ -94,12 +96,68 @@ impl MpvPlayer {
         Ok(())
     }
 
+    /// This method will pump the event loop, redraw the texture with a new frame (if available)
+    /// using the painter's GL context, then return the (potentially new from a resize) texture id.
+    pub fn texture(
+        &mut self,
+        // TODO: figure out how to draw at the full video size
+        rect: &egui::Rect,
+        painter: &egui::Painter,
+    ) -> Option<glow::Texture> {
+        // Read from our events stream on the main thread and respond to MPV
+        self.monitor_events();
+
+        // Ask for a repaint to the texture
+        self.queue_redraw(rect, painter);
+
+        // The painter may or may not have updated our texture, but return it if we have it.
+        let tex = self.tex.lock();
+        tex.as_ref().map(|v| v.tex())
+    }
+
+    /// This method will pump the event loop, redraw the texture with a new frame (if available)
+    /// using the painter's GL context, then wrap the texture id in an Image for us to use in
+    /// whatever UX we're building.
     pub fn image(
         &mut self,
         rect: &egui::Rect,
         painter: &egui::Painter,
         frame: &mut eframe::Frame,
     ) -> Option<egui::Image<'_>> {
+        // Read from our events stream on the main thread and respond to MPV
+        self.monitor_events();
+
+        // Ask for a repaint to the texture
+        self.queue_redraw(rect, painter);
+
+        // We may or may not have an image this frame, but get it and return it if we have it.
+        let mut tex = self.tex.lock();
+        tex.as_mut().map(|tex| {
+            let tex_id = if let Some(tex_id) = tex.tex_id() {
+                tex_id
+            } else {
+                let tex_id = frame.register_native_glow_texture(tex.tex());
+                tex.set_tex_id(tex_id);
+                tex_id
+            };
+            egui::Image::from_texture(egui::load::SizedTexture {
+                id: tex_id,
+                size: tex.size().max.to_vec2(),
+            })
+        })
+    }
+
+    // Keep mpv's connection alive and monitored, without syncing on the graphics engine. For use
+    // if the video is temporarily not being shown.
+    pub fn monitor_events(&mut self) {
+        // Read from our events stream on the main thread and respond to MPV
+        self.client
+            .as_mut()
+            .expect("not initialized")
+            .drain_events();
+    }
+
+    pub fn queue_redraw(&mut self, rect: &egui::Rect, painter: &egui::Painter) {
         // Clone locals so we can move them into the paint callback:
         let tex_ref = self.tex.clone();
         let rect = *rect;
@@ -129,9 +187,6 @@ impl MpvPlayer {
             }
         }));
 
-        // Read from our events stream on the main thread and respond to MPV
-        self.monitor_events();
-
         // Redraw if requested by MPV
         if self
             .render
@@ -141,32 +196,6 @@ impl MpvPlayer {
         {
             painter.add(egui::PaintCallback { rect, callback });
         }
-
-        // We may or may not have an image this frame, but get it and return it if we have it.
-        let mut tex = self.tex.lock();
-        tex.as_mut().map(|tex| {
-            let tex_id = if let Some(tex_id) = tex.tex_id() {
-                tex_id
-            } else {
-                let tex_id = frame.register_native_glow_texture(tex.tex());
-                tex.set_tex_id(tex_id);
-                tex_id
-            };
-            egui::Image::from_texture(egui::load::SizedTexture {
-                id: tex_id,
-                size: tex.size().max.to_vec2(),
-            })
-        })
-    }
-
-    // Keep mpv's connection alive and monitored, without syncing on the graphics engine. For use
-    // if the video is temporarily not being shown.
-    pub fn monitor_events(&mut self) {
-        // Read from our events stream on the main thread and respond to MPV
-        self.client
-            .as_mut()
-            .expect("not initialized")
-            .drain_events();
     }
 
     /// Panics if initialize has not yet been called.
@@ -321,5 +350,28 @@ impl MpvPlayer {
 
     pub fn duration(&self) -> f64 {
         self.mpv().duration()
+    }
+
+    pub fn width(&self) -> f64 {
+        self.mpv().width()
+    }
+
+    pub fn height(&self) -> f64 {
+        self.mpv().height()
+    }
+
+    pub fn rect(&self) -> egui::Rect {
+        let w = self.width().max(1.0) as f32;
+        let h = self.height().max(1.0) as f32;
+        egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::new(w, h))
+    }
+
+    pub fn aspect_ratio(&self) -> f64 {
+        let h = self.height();
+        if h > 0.0 {
+            self.width() / h
+        } else {
+            1.0
+        }
     }
 }

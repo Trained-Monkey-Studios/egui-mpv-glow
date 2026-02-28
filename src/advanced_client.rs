@@ -14,6 +14,8 @@ struct AsyncClientState {
     time_pos: f64,
     time_remaining: f64,
     duration: f64,
+    width: f64,
+    height: f64,
 }
 
 // When using advanced mode, we're required to listen for events and respond appropriately.
@@ -203,10 +205,10 @@ impl MpvAdvancedClient {
                                             "time-remaining" => {
                                                 self.async_state.time_remaining = value;
                                             }
-                                            "duration" => {
-                                                self.async_state.duration = value;
-                                            }
-                                            _ => panic!("unexpected double property name"),
+                                            "duration" => self.async_state.duration = value,
+                                            "width" => self.async_state.width = value,
+                                            "height" => self.async_state.height = value,
+                                            v => panic!("unexpected double property name: {v}"),
                                         }
                                     }
                                     libmpv_sys::mpv_format_MPV_FORMAT_NODE => {
@@ -271,6 +273,10 @@ impl MpvAdvancedClient {
                         //       to the _display_ size on output so that MPV/ffmpeg will do the
                         //       resizing for us, with proper letterboxing and whatnot.
                         trace!("mpv video has been reconfigured");
+                        self.get_property_double_async("width")
+                            .expect("client disconnect");
+                        self.get_property_double_async("height")
+                            .expect("client disconnect");
                     }
                     libmpv_sys::mpv_event_id_MPV_EVENT_SEEK => {
                         // Should receive a PLAYBACK_RESTART event after this one.
@@ -288,14 +294,16 @@ impl MpvAdvancedClient {
         // Send requests to update our async client state.
         self.get_property_flag_async("pause")
             .expect("client disconnect");
-        self.get_property_double_async("percent-pos")
-            .expect("client disconnect");
-        self.get_property_double_async("time-pos")
-            .expect("client disconnect");
-        self.get_property_double_async("time-remaining")
-            .expect("client disconnect");
-        self.get_property_double_async("duration")
-            .expect("client disconnect");
+        const F64_PROPERTIES: [&str; 4] = [
+            "percent-pos",
+            "time-pos",
+            "time-remaining",
+            "duration",
+        ];
+        for prop in F64_PROPERTIES {
+            self.get_property_double_async(prop)
+                .expect("client disconnect");
+        }
 
         stopped
     }
@@ -491,5 +499,13 @@ impl MpvAdvancedClient {
 
     pub fn duration(&self) -> f64 {
         self.async_state.duration
+    }
+
+    pub fn width(&self) -> f64 {
+        self.async_state.width
+    }
+
+    pub fn height(&self) -> f64 {
+        self.async_state.height
     }
 }

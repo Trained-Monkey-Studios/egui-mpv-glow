@@ -16,6 +16,15 @@
         devShells.default = mkShell rec {
           buildInputs = [
             # Rust
+            (rust-bin.stable.latest.default.override {
+              extensions = [
+                "rust-std"
+                "rustfmt"
+                "rust-src" # for rust-analyzer
+                "rust-analyzer"
+              ];
+              targets = [];
+            })
             rust-bin.stable.latest.default
 
             # misc. libraries
